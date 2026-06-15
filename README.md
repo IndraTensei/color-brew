@@ -21,6 +21,9 @@
 - **Clipboard Support** — Copy hex values instantly
 - **140+ Named Colors** — Full CSS color name support
 - **Zero Dependencies** — Pure Python 3, no pip install needed (optional Pillow for PNG export)
+- **🪪 Color Identity** — Reverse-lookup any color to find its closest named CSS color, with CMYK output
+- **📜 Palette History** — Auto-save and recall your previously generated palettes
+- **🌈 Smooth Gradient Bar** — Choose between block or smooth gradient terminal previews
 
 ---
 
@@ -147,6 +150,45 @@ color-brew "#FF6B6B" --contrast "#FFFFFF" "#000000" "#2C3E50"
 ```bash
 # Copy hex values to clipboard
 color-brew "#FF6B6B" --copy
+```
+
+### Color Identity (Reverse Lookup)
+
+```bash
+# Identify the closest named CSS color and get full color info
+color-brew "#FF6B6B" --identify
+
+# Output:
+#   🪪 Color Identity for #FF6B6B
+#   ─────────────────────────────────────────────
+#   HEX: #FF6B6B
+#   RGB: rgb(255, 107, 107)
+#   HSL: hsl(0.0, 100.0%, 71.0%)
+#   CMYK: cmyk(0%, 58%, 58%, 0%)
+#   Name: coral (distance: 33.9)
+```
+
+### Palette History
+
+```bash
+# Save a palette to history
+color-brew "#3498DB" --scheme triadic --save
+
+# View your palette history
+color-brew --history
+
+# Show more history entries
+color-brew --history --history-count 20
+```
+
+### Bar Style
+
+```bash
+# Use smooth gradient bar instead of block style
+color-brew "#FF6B6B" --scheme triadic --bar-style smooth
+
+# Smooth bar with all schemes
+color-brew "#2C3E50" --all --bar-style smooth
 ```
 
 ### Quiet Mode

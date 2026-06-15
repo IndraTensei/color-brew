@@ -6,6 +6,8 @@ A CLI tool that creates harmonious color palettes and exports them in
 multiple formats. Perfect for designers, developers, and anyone who
 needs colors for a project, presentation, or creative work.
 
+Version: 1.3.0
+
 Usage:
     color-brew <color> [options]
 
@@ -19,6 +21,7 @@ Examples:
 
 import argparse
 import colorsys
+import datetime
 import json
 import math
 import os
@@ -172,7 +175,119 @@ def get_text_color(bg_rgb: Tuple[int, int, int]) -> str:
     return "#FFFFFF" if white_contrast > black_contrast else "#000000"
 
 
-# ─── Palette Generation ──────────────────────────────────────────────────────
+# ─── Color Name Detection (Reverse Lookup) ────────────────────────────────────
+
+def color_distance(rgb1: Tuple[int, int, int], rgb2: Tuple[int, int, int]) -> float:
+    """Calculate weighted Euclidean distance between two colors (human-perception-aware)."""
+    r1, g1, b1 = rgb1
+    r2, g2, b2 = rgb2
+    # Weighted Euclidean distance (human eyes are most sensitive to green)
+    return math.sqrt(2 * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + 3 * (b1 - b2) ** 2)
+
+
+def find_closest_color_name(rgb: Tuple[int, int, int]) -> Tuple[str, str, float]:
+    """Find the closest named CSS color. Returns (name, hex, distance)."""
+    min_dist = float('inf')
+    closest_name = "unknown"
+    closest_hex = rgb_to_hex(*rgb)
+    for name, hex_val in NAMED_COLORS.items():
+        dist = color_distance(rgb, hex_to_rgb(hex_val))
+        if dist < min_dist:
+            min_dist = dist
+            closest_name = name
+            closest_hex = hex_val
+    return (closest_name, closest_hex, min_dist)
+
+
+def print_color_identity(rgb: Tuple[int, int, int]):
+    """Print detailed identity info for a color."""
+    hex_str = rgb_to_hex(*rgb)
+    h, s, l = rgb_to_hsl(*rgb)
+    c, m, y, k = rgb_to_cmyk(*rgb)
+    closest_name, closest_hex, dist = find_closest_color_name(rgb)
+
+    print(f"\n  🪪 Color Identity for {hex_str}")
+    print(f"  {'─' * 45}")
+    print(f"  HEX: {hex_str}")
+    print(f"  RGB: rgb({rgb[0]}, {rgb[1]}, {rgb[2]})")
+    print(f"  HSL: hsl({h:.1f}, {s:.1f}%, {l:.1f}%)")
+    print(f"  CMYK: cmyk({c:.0f}%, {m:.0f}%, {y:.0f}%, {k:.0f}%)")
+    if closest_name != "unknown":
+        exact = " (exact match)" if dist < 1 else f" (distance: {dist:.1f})"
+        print(f"  Name: {closest_name}{exact}")
+    print()
+
+
+# ─── Palette History & Favorites ──────────────────────────────────────────────
+
+HISTORY_DIR = os.path.expanduser("~/.color-brew")
+HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
+
+
+def _ensure_history_dir():
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+
+
+def load_history() -> List[dict]:
+    """Load palette history from disk."""
+    _ensure_history_dir()
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except (json.JSONDecodeError, IOError):
+        pass
+    return []
+
+
+def save_palette_to_history(scheme: str, base_color: str, palette: List[Tuple[int, int, int]]):
+    """Save a generated palette to history."""
+    _ensure_history_dir()
+    history = load_history()
+    entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "scheme": scheme,
+        "base_color": base_color,
+        "colors": [rgb_to_hex(*c) for c in palette],
+    }
+    history.insert(0, entry)
+    # Keep last 200 entries
+    history = history[:200]
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+    return entry
+
+
+def print_history(count: int = 10):
+    """Print palette history."""
+    history = load_history()
+    if not history:
+        print("\n  📭 No palette history yet. Generate some palettes!\n")
+        return
+
+    print(f"\n  📜 Palette History (last {min(count, len(history))} of {len(history)})")
+    print(f"  {'─' * 55}")
+    for i, entry in enumerate(history[:count]):
+        ts = entry.get("timestamp", "?")[:19]
+        scheme = entry.get("scheme", "?")
+        base = entry.get("base_color", "?")
+        colors = entry.get("colors", [])
+        color_str = " ".join(colors) if colors else "(empty)"
+        swatches = ""
+        if colors:
+            for c in colors[:8]:
+                try:
+                    swatches += color_block(c, 2)
+                except Exception:
+                    pass
+        print(f"  {i+1:3d}. [{ts}] {scheme:20s} from {base}")
+        print(f"       {swatches}")
+        print(f"       {color_str}")
+        print()
+    print()
 
 def normalize_hue(h: float) -> float:
     """Normalize hue to 0-360 range."""
@@ -331,6 +446,40 @@ def print_palette_bar(palette: List[Tuple[int, int, int]], width: int = 60):
     print()
 
 
+def print_smooth_bar(palette: List[Tuple[int, int, int]], width: int = 60):
+    """Print a smooth gradient bar using Unicode half-block characters for finer resolution."""
+    print()
+    if len(palette) < 2:
+        print_palette_bar(palette, width)
+        return
+
+    # Generate a smooth gradient by interpolating between palette colors
+    total_steps = width
+    colors_per_segment = max(1, total_steps // (len(palette) - 1))
+
+    smooth_colors = []
+    for i in range(len(palette) - 1):
+        r1, g1, b1 = palette[i]
+        r2, g2, b2 = palette[i + 1]
+        for step in range(colors_per_segment):
+            t = step / colors_per_segment
+            r = int(round(r1 + (r2 - r1) * t))
+            g = int(round(g1 + (g2 - g1) * t))
+            b = int(round(b1 + (b2 - b1) * t))
+            smooth_colors.append((r, g, b))
+
+    # Add the last color
+    smooth_colors.append(palette[-1])
+
+    # Print using half-block characters (▀ and ▄) for double vertical resolution
+    bar = ""
+    for color in smooth_colors[:width]:
+        hex_str = rgb_to_hex(*color)
+        bar += color_block(hex_str, 1)
+    print(f"  {bar}")
+    print()
+
+
 # ─── Export Formats ──────────────────────────────────────────────────────────
 
 def export_css(palette: List[Tuple[int, int, int]], var_prefix: str = "color") -> str:
@@ -452,6 +601,8 @@ Examples:
 
     parser.add_argument(
         "color",
+        nargs="?",
+        default=None,
         help="Input color: hex (#FF6B6B), rgb(255,107,107), hsl(0,71,71), or named color (coral)"
     )
 
@@ -522,6 +673,38 @@ Examples:
         help="Only output hex values, one per line",
     )
 
+    parser.add_argument(
+        "--identify",
+        action="store_true",
+        help="Identify the closest named CSS color and show full color identity",
+    )
+
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="Show palette generation history",
+    )
+
+    parser.add_argument(
+        "--history-count",
+        type=int,
+        default=10,
+        help="Number of history entries to show (default: 10)",
+    )
+
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save generated palette to history",
+    )
+
+    parser.add_argument(
+        "--bar-style",
+        choices=["block", "smooth"],
+        default="block",
+        help="Color bar style: 'block' (default) or 'smooth' (gradient)",
+    )
+
     return parser
 
 
@@ -559,12 +742,27 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
+    # Handle --history (no color needed)
+    if args.history:
+        print_history(args.history_count)
+        return
+
+    # Require color for all other operations
+    if not args.color:
+        parser.print_help()
+        sys.exit(0)
+
     # Parse input color
     try:
         base_rgb = parse_color(args.color)
     except ValueError as e:
         print(f"  ❌ {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Handle --identify (color identity info)
+    if args.identify:
+        print_color_identity(base_rgb)
+        return
 
     # Generate palette
     if args.gradient:
@@ -594,10 +792,13 @@ def main():
                 print(" ".join(rgb_to_hex(*c) for c in palette))
             else:
                 print(f"\n  📐 {scheme_name} ({len(palette)} colors)")
-                print_palette_bar(palette)
+                if args.bar_style == "smooth":
+                    print_smooth_bar(palette)
+                else:
+                    print_palette_bar(palette)
                 print_palette(palette)
 
-        # Also show contrast info
+        # Also show contrast info and color identity
         if not args.quiet:
             print(f"\n  📊 Contrast Ratios")
             print(f"  {'─' * 40}")
@@ -607,6 +808,12 @@ def main():
                 wcag_aaa = "✅ AAA" if ratio >= 7.0 else "❌ AAA"
                 large_aa = "✅ AA" if ratio >= 3.0 else "❌ AA"
                 print(f"  {label:6s}: {ratio:.2f}:1  Large: {large_aa}  Normal: {wcag_aa}  {wcag_aaa}")
+            print()
+            # Show closest named color
+            closest_name, closest_hex, dist = find_closest_color_name(base_rgb)
+            if closest_name != "unknown":
+                exact = " (exact match)" if dist < 1 else f" (distance: {dist:.1f})"
+                print(f"  🪪 Closest named color: {closest_name}{exact}")
             print()
 
         return
@@ -630,8 +837,11 @@ def main():
     print(f"  HSL({h:.0f}°, {s:.0f}%, {l:.0f}%)")
     print(f"  {'─' * 50}")
 
-    # Display palette
-    print_palette_bar(palette)
+    # Display palette with chosen bar style
+    if args.bar_style == "smooth":
+        print_smooth_bar(palette)
+    else:
+        print_palette_bar(palette)
     print_palette(palette)
 
     # Contrast check
@@ -683,6 +893,11 @@ def main():
             for line in content.split('\n'):
                 print(f"  {line}")
             print()
+
+    # Save to history
+    if args.save:
+        entry = save_palette_to_history(scheme_name, hex_str, palette)
+        print(f"  💾 Saved to history ({len(entry['colors'])} colors)")
 
     # Copy to clipboard
     if args.copy:
