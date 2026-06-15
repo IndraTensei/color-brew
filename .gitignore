@@ -1,0 +1,10 @@
+color-brew
+*.pyc
+__pycache__/
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+palette.*
