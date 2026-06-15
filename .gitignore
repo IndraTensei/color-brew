@@ -1,10 +1,18 @@
-color-brew
+# Output files
+palette.*
+*.png
+*.svg
+
+# Python
 *.pyc
 __pycache__/
+
+# OS
 .DS_Store
 *.swp
 *.swo
 *~
+
+# Editors
 .vscode/
 .idea/
-palette.*
