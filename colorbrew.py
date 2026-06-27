@@ -6,7 +6,7 @@ A CLI tool that creates harmonious color palettes and exports them in
 multiple formats. Perfect for designers, developers, and anyone who
 needs colors for a project, presentation, or creative work.
 
-Version: 1.3.0
+Version: 1.4.0
 
 Usage:
     color-brew <color> [options]
@@ -25,6 +25,7 @@ import datetime
 import json
 import math
 import os
+import random
 import re
 import sys
 from typing import List, Tuple, Optional, Dict
@@ -206,7 +207,7 @@ def print_color_identity(rgb: Tuple[int, int, int]):
     c, m, y, k = rgb_to_cmyk(*rgb)
     closest_name, closest_hex, dist = find_closest_color_name(rgb)
 
-    print(f"\n  🪪 Color Identity for {hex_str}")
+    print(f"\n  Color Identity for {hex_str}")
     print(f"  {'─' * 45}")
     print(f"  HEX: {hex_str}")
     print(f"  RGB: rgb({rgb[0]}, {rgb[1]}, {rgb[2]})")
@@ -265,10 +266,10 @@ def print_history(count: int = 10):
     """Print palette history."""
     history = load_history()
     if not history:
-        print("\n  📭 No palette history yet. Generate some palettes!\n")
+        print("\n  No palette history yet. Generate some palettes!\n")
         return
 
-    print(f"\n  📜 Palette History (last {min(count, len(history))} of {len(history)})")
+    print(f"\n  Palette History (last {min(count, len(history))} of {len(history)})")
     print(f"  {'─' * 55}")
     for i, entry in enumerate(history[:count]):
         ts = entry.get("timestamp", "?")[:19]
@@ -292,6 +293,204 @@ def print_history(count: int = 10):
 def normalize_hue(h: float) -> float:
     """Normalize hue to 0-360 range."""
     return h % 360
+
+
+# ─── Random Palette Generation ──────────────────────────────────────────────
+
+# Mood-based hue ranges and saturation/lightness presets
+MOOD_PRESETS: Dict[str, Dict] = {
+    "warm": {"hue_range": (0, 60), "sat_range": (50, 90), "light_range": (40, 70)},
+    "cool": {"hue_range": (180, 270), "sat_range": (40, 80), "light_range": (35, 65)},
+    "calm": {"hue_range": (150, 240), "sat_range": (20, 50), "light_range": (55, 80)},
+    "vibrant": {"hue_range": (0, 360), "sat_range": (75, 100), "light_range": (45, 65)},
+    "pastel": {"hue_range": (0, 360), "sat_range": (30, 60), "light_range": (70, 90)},
+    "dark": {"hue_range": (0, 360), "sat_range": (30, 80), "light_range": (10, 35)},
+    "earthy": {"hue_range": (15, 55), "sat_range": (25, 55), "light_range": (25, 55)},
+    "neon": {"hue_range": (0, 360), "sat_range": (90, 100), "light_range": (50, 65)},
+    "sunset": {"hue_range": (340, 60), "sat_range": (60, 95), "light_range": (40, 70)},
+    "ocean": {"hue_range": (170, 220), "sat_range": (40, 80), "light_range": (30, 65)},
+    "forest": {"hue_range": (80, 160), "sat_range": (25, 60), "light_range": (20, 50)},
+    "retro": {"hue_range": (0, 360), "sat_range": (50, 75), "light_range": (45, 60)},
+}
+
+SEASONS: Dict[str, List[str]] = {
+    "spring": ["#FFB7C5", "#FFD1DC", "#B5EAD7", "#C7CEEA", "#E2F0CB"],
+    "summer": ["#FF6B6B", "#FFE66D", "#4ECDC4", "#1A535C", "#F7FFF7"],
+    "autumn": ["#D4A373", "#CCD5AE", "#E9EDC9", "#FEFAE0", "#FAEDCD"],
+    "winter": ["#A8DADC", "#457B9D", "#1D3557", "#F1FAEE", "#E63946"],
+}
+
+
+def generate_random_color(mood: Optional[str] = None) -> Tuple[int, int, int]:
+    """Generate a random base color, optionally constrained by a mood keyword."""
+    if mood and mood.lower() in MOOD_PRESETS:
+        preset = MOOD_PRESETS[mood.lower()]
+        h_range = preset["hue_range"]
+        # Handle wrap-around hue ranges (e.g., sunset: 340 to 60)
+        if h_range[0] > h_range[1]:
+            h = random.choice(
+                list(range(h_range[0], 360)) + list(range(0, h_range[1] + 1))
+            )
+        else:
+            h = random.uniform(h_range[0], h_range[1])
+        s = random.uniform(preset["sat_range"][0], preset["sat_range"][1])
+        l = random.uniform(preset["light_range"][0], preset["light_range"][1])
+    else:
+        h = random.uniform(0, 360)
+        s = random.uniform(30, 90)
+        l = random.uniform(30, 70)
+    return hsl_to_rgb(h, s, l)
+
+
+def generate_random_palette(
+    scheme: str = "analogous",
+    mood: Optional[str] = None,
+    steps: int = 5,
+) -> Tuple[Tuple[int, int, int], List[Tuple[int, int, int]]]:
+    """Generate a random palette. Returns (base_rgb, palette)."""
+    base_rgb = generate_random_color(mood)
+    generator = SCHEMES.get(scheme, generate_analogous)
+    if scheme in ("monochromatic", "shades", "tints"):
+        palette = generator(base_rgb, steps)
+    else:
+        palette = generator(base_rgb)
+    return base_rgb, palette
+
+
+def generate_seasonal_palette(season: str) -> List[Tuple[int, int, int]]:
+    """Generate a palette inspired by a season."""
+    season = season.lower()
+    if season not in SEASONS:
+        raise ValueError(f"Unknown season '{season}'. Choose from: {', '.join(SEASONS.keys())}")
+    hex_list = SEASONS[season]
+    random.shuffle(hex_list)
+    return [hex_to_rgb(h) for h in hex_list]
+
+
+# ─── Palette Blending ───────────────────────────────────────────────────────
+
+def blend_colors(
+    rgb1: Tuple[int, int, int],
+    rgb2: Tuple[int, int, int],
+    ratio: float = 0.5,
+) -> Tuple[int, int, int]:
+    """Blend two colors together. ratio=0 gives rgb1, ratio=1 gives rgb2."""
+    ratio = max(0.0, min(1.0, ratio))
+    r = int(round(rgb1[0] * (1 - ratio) + rgb2[0] * ratio))
+    g = int(round(rgb1[1] * (1 - ratio) + rgb2[1] * ratio))
+    b = int(round(rgb1[2] * (1 - ratio) + rgb2[2] * ratio))
+    return (r, g, b)
+
+
+def blend_palettes(
+    palette1: List[Tuple[int, int, int]],
+    palette2: List[Tuple[int, int, int]],
+    ratio: float = 0.5,
+) -> List[Tuple[int, int, int]]:
+    """Blend two palettes together. The longer palette is truncated to match."""
+    min_len = min(len(palette1), len(palette2))
+    result = []
+    for i in range(min_len):
+        result.append(blend_colors(palette1[i], palette2[i], ratio))
+    return result
+
+
+def interleave_palettes(
+    palette1: List[Tuple[int, int, int]],
+    palette2: List[Tuple[int, int, int]],
+) -> List[Tuple[int, int, int]]:
+    """Interleave colors from two palettes (alternating picks)."""
+    result = []
+    max_len = max(len(palette1), len(palette2))
+    for i in range(max_len):
+        if i < len(palette1):
+            result.append(palette1[i])
+        if i < len(palette2):
+            result.append(palette2[i])
+    return result
+
+
+# ─── Favorites System ────────────────────────────────────────────────────────
+
+FAVORITES_FILE = os.path.join(HISTORY_DIR, "favorites.json")
+
+
+def load_favorites() -> List[dict]:
+    """Load favorite palettes from disk."""
+    _ensure_history_dir()
+    if not os.path.exists(FAVORITES_FILE):
+        return []
+    try:
+        with open(FAVORITES_FILE, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except (json.JSONDecodeError, IOError):
+        pass
+    return []
+
+
+def save_to_favorites(name: str, scheme: str, base_color: str, palette: List[Tuple[int, int, int]]):
+    """Save a palette to favorites with a given name."""
+    _ensure_history_dir()
+    favorites = load_favorites()
+    entry = {
+        "name": name,
+        "scheme": scheme,
+        "base_color": base_color,
+        "colors": [rgb_to_hex(*c) for c in palette],
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    # Remove duplicate by name
+    favorites = [f for f in favorites if f.get("name") != name]
+    favorites.insert(0, entry)
+    # Keep last 100 favorites
+    favorites = favorites[:100]
+    with open(FAVORITES_FILE, "w") as f:
+        json.dump(favorites, f, indent=2)
+    return entry
+
+
+def remove_favorite(name: str) -> bool:
+    """Remove a favorite by name. Returns True if found and removed."""
+    favorites = load_favorites()
+    original_len = len(favorites)
+    favorites = [f for f in favorites if f.get("name") != name]
+    if len(favorites) < original_len:
+        with open(FAVORITES_FILE, "w") as f:
+            json.dump(favorites, f, indent=2)
+        return True
+    return False
+
+
+def print_favorites():
+    """Print all saved favorite palettes."""
+    favorites = load_favorites()
+    if not favorites:
+        print("\n  No favorites saved yet. Use --favorite <name> to save a palette.\n")
+        return
+
+    print(f"\n  Saved Favorites ({len(favorites)})")
+    print(f"  {'─' * 55}")
+    for i, entry in enumerate(favorites):
+        name = entry.get("name", "?")
+        scheme = entry.get("scheme", "?")
+        base = entry.get("base_color", "?")
+        colors = entry.get("colors", [])
+        ts = entry.get("timestamp", "")[:10]
+        color_str = " ".join(colors) if colors else "(empty)"
+        swatches = ""
+        if colors:
+            for c in colors[:8]:
+                try:
+                    swatches += color_block(c, 2)
+                except Exception:
+                    pass
+        print(f"  {i+1:3d}. [{name}] ({scheme}) from {base}  ({ts})")
+        print(f"       {swatches}")
+        print(f"       {color_str}")
+        print()
+    print()
 
 
 def generate_complementary(base_rgb: Tuple[int, int, int]) -> List[Tuple[int, int, int]]:
@@ -576,7 +775,7 @@ def export_png(palette: List[Tuple[int, int, int]], output_path: str):
         svg_path = output_path.replace('.png', '.svg')
         with open(svg_path, 'w') as f:
             f.write(export_svg(palette))
-        print(f"  ⚠ Pillow not available. Saved SVG swatch to {svg_path} instead.")
+        print(f"  Pillow not available. Saved SVG swatch to {svg_path} instead.")
 
 
 # ─── Main CLI ────────────────────────────────────────────────────────────────
@@ -584,7 +783,7 @@ def export_png(palette: List[Tuple[int, int, int]], output_path: str):
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="color-brew",
-        description="🎨 Generate beautiful color palettes from a single color or keyword.",
+        description="Generate beautiful color palettes from a single color or keyword.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
@@ -705,6 +904,60 @@ Examples:
         help="Color bar style: 'block' (default) or 'smooth' (gradient)",
     )
 
+    parser.add_argument(
+        "--random",
+        nargs="?",
+        const="any",
+        default=None,
+        metavar="MOOD",
+        help="Generate a random palette. Optionally specify a mood: "
+             + ", ".join(sorted(MOOD_PRESETS.keys())),
+    )
+
+    parser.add_argument(
+        "--season",
+        choices=list(SEASONS.keys()),
+        help="Generate a palette inspired by a season (spring, summer, autumn, winter)",
+    )
+
+    parser.add_argument(
+        "--blend",
+        metavar="COLOR",
+        help="Blend the generated palette with a palette from this second base color",
+    )
+
+    parser.add_argument(
+        "--blend-mode",
+        choices=["merge", "interleave"],
+        default="merge",
+        help="How to blend palettes: 'merge' (weighted average) or 'interleave' (alternate) (default: merge)",
+    )
+
+    parser.add_argument(
+        "--blend-ratio",
+        type=float,
+        default=0.5,
+        help="Blend ratio for merge mode (0.0=first palette, 1.0=second) (default: 0.5)",
+    )
+
+    parser.add_argument(
+        "--favorite",
+        metavar="NAME",
+        help="Save the current palette to favorites with the given name",
+    )
+
+    parser.add_argument(
+        "--favorites",
+        action="store_true",
+        help="List all saved favorite palettes",
+    )
+
+    parser.add_argument(
+        "--unfavorite",
+        metavar="NAME",
+        help="Remove a palette from favorites by name",
+    )
+
     return parser
 
 
@@ -733,9 +986,9 @@ def copy_to_clipboard(text: str):
             return
         except FileNotFoundError:
             pass
-        print("  ⚠ Clipboard copy requires xclip, pbcopy, or wl-copy", file=sys.stderr)
+        print("  Clipboard copy requires xclip, pbcopy, or wl-copy", file=sys.stderr)
     except Exception as e:
-        print(f"  ⚠ Clipboard copy failed: {e}", file=sys.stderr)
+        print(f"  Clipboard copy failed: {e}", file=sys.stderr)
 
 
 def main():
@@ -747,6 +1000,138 @@ def main():
         print_history(args.history_count)
         return
 
+    # Handle --favorites (no color needed)
+    if args.favorites:
+        print_favorites()
+        return
+
+    # Handle --unfavorite (no color needed)
+    if args.unfavorite:
+        if remove_favorite(args.unfavorite):
+            print(f"\n  Removed '{args.unfavorite}' from favorites.\n")
+        else:
+            print(f"\n  Favorite '{args.unfavorite}' not found.\n")
+        return
+
+    # Handle --season (no base color needed)
+    if args.season:
+        try:
+            palette = generate_seasonal_palette(args.season)
+        except ValueError as e:
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.quiet:
+            print(" ".join(rgb_to_hex(*c) for c in palette))
+            return
+
+        scheme_name = f"seasonal-{args.season}"
+        hex_str = rgb_to_hex(*palette[0])
+
+        print(f"\n  color-brew -- {args.season.upper()} seasonal palette")
+        print(f"  {'─' * 50}")
+        if args.bar_style == "smooth":
+            print_smooth_bar(palette)
+        else:
+            print_palette_bar(palette)
+        print_palette(palette)
+
+        # Save to history
+        if args.save:
+            entry = save_palette_to_history(scheme_name, hex_str, palette)
+            print(f"  Saved to history ({len(entry['colors'])} colors)")
+
+        # Export
+        if args.export:
+            var_prefix = args.name or args.season
+            _handle_export(palette, args, var_prefix)
+
+        # Favorite
+        if args.favorite:
+            entry = save_to_favorites(args.favorite, scheme_name, hex_str, palette)
+            print(f"  Saved to favorites as '{args.favorite}' ({len(entry['colors'])} colors)")
+
+        # Copy to clipboard
+        if args.copy:
+            hex_values = " ".join(rgb_to_hex(*c) for c in palette)
+            copy_to_clipboard(hex_values)
+            print(f"  Copied to clipboard: {hex_values}")
+
+        print()
+        return
+
+    # Handle --random (no base color needed)
+    if args.random is not None:
+        mood = args.random if args.random != "any" else None
+        if mood and mood.lower() not in MOOD_PRESETS:
+            print(f"  Unknown mood '{mood}'. Available moods: {', '.join(sorted(MOOD_PRESETS.keys()))}", file=sys.stderr)
+            sys.exit(1)
+
+        base_rgb, palette = generate_random_palette(
+            scheme=args.scheme, mood=mood, steps=args.steps
+        )
+        scheme_name = args.scheme
+
+        # Apply blend if requested
+        if args.blend:
+            try:
+                blend_rgb = parse_color(args.blend)
+            except ValueError as e:
+                print(f"  {e}", file=sys.stderr)
+                sys.exit(1)
+            blend_gen = SCHEMES.get(args.scheme, generate_analogous)
+            if args.scheme in ("monochromatic", "shades", "tints"):
+                palette2 = blend_gen(blend_rgb, args.steps)
+            else:
+                palette2 = blend_gen(blend_rgb)
+            if args.blend_mode == "interleave":
+                palette = interleave_palettes(palette, palette2)
+                scheme_name = f"{scheme_name}-interleaved"
+            else:
+                palette = blend_palettes(palette, palette2, args.blend_ratio)
+                scheme_name = f"{scheme_name}-blended"
+
+        if args.quiet:
+            print(" ".join(rgb_to_hex(*c) for c in palette))
+            return
+
+        hex_str = rgb_to_hex(*base_rgb)
+        h, s, l = rgb_to_hsl(*base_rgb)
+        mood_label = f" ({mood})" if mood else ""
+        print(f"\n  color-brew -- RANDOM{mood_label} {scheme_name.upper()} palette")
+        print(f"  Base: {hex_str} HSL({h:.0f}, {s:.0f}%, {l:.0f}%)")
+        print(f"  {'─' * 50}")
+
+        if args.bar_style == "smooth":
+            print_smooth_bar(palette)
+        else:
+            print_palette_bar(palette)
+        print_palette(palette)
+
+        # Save to history
+        if args.save:
+            entry = save_palette_to_history(scheme_name, hex_str, palette)
+            print(f"  Saved to history ({len(entry['colors'])} colors)")
+
+        # Export
+        if args.export:
+            var_prefix = args.name or "random"
+            _handle_export(palette, args, var_prefix)
+
+        # Favorite
+        if args.favorite:
+            entry = save_to_favorites(args.favorite, scheme_name, hex_str, palette)
+            print(f"  Saved to favorites as '{args.favorite}' ({len(entry['colors'])} colors)")
+
+        # Copy to clipboard
+        if args.copy:
+            hex_values = " ".join(rgb_to_hex(*c) for c in palette)
+            copy_to_clipboard(hex_values)
+            print(f"  Copied to clipboard: {hex_values}")
+
+        print()
+        return
+
     # Require color for all other operations
     if not args.color:
         parser.print_help()
@@ -756,7 +1141,7 @@ def main():
     try:
         base_rgb = parse_color(args.color)
     except ValueError as e:
-        print(f"  ❌ {e}", file=sys.stderr)
+        print(f"  {e}", file=sys.stderr)
         sys.exit(1)
 
     # Handle --identify (color identity info)
@@ -769,7 +1154,7 @@ def main():
         try:
             target_rgb = parse_color(args.gradient)
         except ValueError as e:
-            print(f"  ❌ {e}", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
             sys.exit(1)
         palette = generate_gradient(base_rgb, target_rgb, args.steps)
         scheme_name = "gradient"
@@ -778,8 +1163,8 @@ def main():
         if not args.quiet:
             hex_str = rgb_to_hex(*base_rgb)
             h, s, l = rgb_to_hsl(*base_rgb)
-            print(f"\n  🎨 color-brew — Palettes from {hex_str} "
-                  f"(hsl({h:.0f}°, {s:.0f}%, {l:.0f}%))")
+            print(f"\n  color-brew -- Palettes from {hex_str} "
+                  f"(hsl({h:.0f}, {s:.0f}%, {l:.0f}%))")
             print(f"  {'─' * 56}")
 
         for scheme_name, generator in SCHEMES.items():
@@ -791,7 +1176,7 @@ def main():
             if args.quiet:
                 print(" ".join(rgb_to_hex(*c) for c in palette))
             else:
-                print(f"\n  📐 {scheme_name} ({len(palette)} colors)")
+                print(f"\n  {scheme_name} ({len(palette)} colors)")
                 if args.bar_style == "smooth":
                     print_smooth_bar(palette)
                 else:
@@ -800,20 +1185,20 @@ def main():
 
         # Also show contrast info and color identity
         if not args.quiet:
-            print(f"\n  📊 Contrast Ratios")
+            print(f"\n  Contrast Ratios")
             print(f"  {'─' * 40}")
             for label, ref in [("White", (255, 255, 255)), ("Black", (0, 0, 0))]:
                 ratio = get_contrast_ratio(base_rgb, ref)
-                wcag_aa = "✅ AA" if ratio >= 4.5 else "❌ AA"
-                wcag_aaa = "✅ AAA" if ratio >= 7.0 else "❌ AAA"
-                large_aa = "✅ AA" if ratio >= 3.0 else "❌ AA"
+                wcag_aa = "AA" if ratio >= 4.5 else "fail AA"
+                wcag_aaa = "AAA" if ratio >= 7.0 else "fail AAA"
+                large_aa = "AA" if ratio >= 3.0 else "fail AA"
                 print(f"  {label:6s}: {ratio:.2f}:1  Large: {large_aa}  Normal: {wcag_aa}  {wcag_aaa}")
             print()
             # Show closest named color
             closest_name, closest_hex, dist = find_closest_color_name(base_rgb)
             if closest_name != "unknown":
                 exact = " (exact match)" if dist < 1 else f" (distance: {dist:.1f})"
-                print(f"  🪪 Closest named color: {closest_name}{exact}")
+                print(f"  Closest named color: {closest_name}{exact}")
             print()
 
         return
@@ -825,6 +1210,25 @@ def main():
             palette = generator(base_rgb)
         scheme_name = args.scheme
 
+    # Apply blend if requested
+    if args.blend:
+        try:
+            blend_rgb = parse_color(args.blend)
+        except ValueError as e:
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
+        blend_gen = SCHEMES.get(args.scheme, generate_analogous)
+        if args.scheme in ("monochromatic", "shades", "tints"):
+            palette2 = blend_gen(blend_rgb, args.steps)
+        else:
+            palette2 = blend_gen(blend_rgb)
+        if args.blend_mode == "interleave":
+            palette = interleave_palettes(palette, palette2)
+            scheme_name = f"{scheme_name}-interleaved"
+        else:
+            palette = blend_palettes(palette, palette2, args.blend_ratio)
+            scheme_name = f"{scheme_name}-blended"
+
     # Quiet mode
     if args.quiet:
         print(" ".join(rgb_to_hex(*c) for c in palette))
@@ -833,8 +1237,8 @@ def main():
     # Display header
     hex_str = rgb_to_hex(*base_rgb)
     h, s, l = rgb_to_hsl(*base_rgb)
-    print(f"\n  🎨 color-brew — {scheme_name.upper()} palette from {hex_str}")
-    print(f"  HSL({h:.0f}°, {s:.0f}%, {l:.0f}%)")
+    print(f"\n  color-brew -- {scheme_name.upper()} palette from {hex_str}")
+    print(f"  HSL({h:.0f}, {s:.0f}%, {l:.0f}%)")
     print(f"  {'─' * 50}")
 
     # Display palette with chosen bar style
@@ -851,61 +1255,76 @@ def main():
             try:
                 contrast_colors.append(parse_color(c))
             except ValueError as e:
-                print(f"  ⚠ {e}", file=sys.stderr)
+                print(f"  {e}", file=sys.stderr)
 
-        print(f"  📊 Contrast Ratios")
+        print(f"  Contrast Ratios")
         print(f"  {'─' * 40}")
         for i, color in enumerate(palette):
             for ref_name, ref_color in [(f"vs {c}", rc) for c, rc in zip(args.contrast, contrast_colors)]:
                 ratio = get_contrast_ratio(color, ref_color)
-                status = "✅" if ratio >= 4.5 else "⚠️" if ratio >= 3.0 else "❌"
+                status = "PASS" if ratio >= 4.5 else "WARN" if ratio >= 3.0 else "FAIL"
                 print(f"  {rgb_to_hex(*color)} {ref_name}: {ratio:.2f}:1 {status}")
         print()
 
     # Export
     if args.export:
         var_prefix = args.name or "color"
-        if args.export == "css":
-            content = export_css(palette, var_prefix)
-        elif args.export == "scss":
-            content = export_scss(palette, var_prefix)
-        elif args.export == "tailwind":
-            content = export_tailwind(palette, var_prefix)
-        elif args.export == "json":
-            content = export_json(palette)
-        elif args.export == "svg":
-            content = export_svg(palette)
-        elif args.export == "png":
-            output_path = args.output or "palette.png"
-            export_png(palette, output_path)
-            print(f"  ✅ PNG exported to {output_path}")
-            return
-        else:
-            content = ""
-
-        if args.output:
-            with open(args.output, 'w') as f:
-                f.write(content)
-            print(f"  ✅ Exported to {args.output} ({args.export} format)")
-        else:
-            print(f"\n  📄 {args.export.upper()} Output:")
-            print(f"  {'─' * 40}")
-            for line in content.split('\n'):
-                print(f"  {line}")
-            print()
+        _handle_export(palette, args, var_prefix)
 
     # Save to history
     if args.save:
         entry = save_palette_to_history(scheme_name, hex_str, palette)
-        print(f"  💾 Saved to history ({len(entry['colors'])} colors)")
+        print(f"  Saved to history ({len(entry['colors'])} colors)")
+
+    # Save to favorites
+    if args.favorite:
+        entry = save_to_favorites(args.favorite, scheme_name, hex_str, palette)
+        print(f"  Saved to favorites as '{args.favorite}' ({len(entry['colors'])} colors)")
 
     # Copy to clipboard
     if args.copy:
         hex_values = " ".join(rgb_to_hex(*c) for c in palette)
         copy_to_clipboard(hex_values)
-        print(f"  📋 Copied to clipboard: {hex_values}")
+        print(f"  Copied to clipboard: {hex_values}")
 
     print()
+
+
+def _export_by_format(palette: List[Tuple[int, int, int]], args, var_prefix: str) -> str:
+    """Generate export content based on the selected format."""
+    if args.export == "css":
+        return export_css(palette, var_prefix)
+    elif args.export == "scss":
+        return export_scss(palette, var_prefix)
+    elif args.export == "tailwind":
+        return export_tailwind(palette, var_prefix)
+    elif args.export == "json":
+        return export_json(palette)
+    elif args.export == "svg":
+        return export_svg(palette)
+    return ""
+
+
+def _handle_export(palette: List[Tuple[int, int, int]], args, var_prefix: str):
+    """Handle export: write to file or print to stdout."""
+    if args.export == "png":
+        output_path = args.output or "palette.png"
+        export_png(palette, output_path)
+        print(f"  PNG exported to {output_path}")
+        return
+    content = _export_by_format(palette, args, var_prefix)
+    if not content:
+        return
+    if args.output:
+        with open(args.output, 'w') as f:
+            f.write(content)
+        print(f"  Exported to {args.output} ({args.export} format)")
+    else:
+        print(f"\n  {args.export.upper()} Output:")
+        print(f"  {'─' * 40}")
+        for line in content.split('\n'):
+            print(f"  {line}")
+        print()
 
 
 if __name__ == "__main__":
